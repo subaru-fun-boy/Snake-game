@@ -30,8 +30,8 @@ python3 snake.py
 
 - The board fills the whole terminal window.
 - Eat food (`◆`) to grow and score points.
-- Every cell your tail leaves behind turns into permanent "poop" (`%`) -
-  it never disappears, so you can't cross your own trail again.
+- Every 5 fruits you eat, the snake leaves behind a permanent poop (`%`)
+  obstacle at its current tail position - it never disappears.
 - Hitting a wall, your own body, or a poop cell ends the game. The board
   freezes at the moment of the crash (with an `X` marking the impact) so
   you can see exactly what went wrong.

@@ -7,9 +7,9 @@ Controls:
     q          - quit
     r          - restart (after game over)
 
-Every cell the snake's tail vacates is left behind as permanent "poop" -
-crashing into your own trail ends the game just like hitting a wall or
-your own body.
+Every FRUITS_PER_POOP fruits digested, the snake leaves a permanent
+"poop" obstacle behind - crashing into one ends the game just like
+hitting a wall or your own body.
 """
 
 import curses
@@ -20,6 +20,7 @@ import random
 DELAY_MS = 100
 POOP_CHAR = ord("%")
 CRASH_CHAR = ord("X")
+FRUITS_PER_POOP = 5
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snake_debug.log")
 
@@ -124,6 +125,7 @@ def run_game(win, height, width):
     poop = set()
     food = place_food(snake, poop, height, width)
     score = 0
+    fruits_eaten = 0
     paused = False
     tick = 0
 
@@ -167,7 +169,7 @@ def run_game(win, height, width):
         )
         will_grow = new_head == food
         # The tail cell vacates this move unless the snake is growing, so it
-        # must not count as an obstacle in that case - it becomes poop below.
+        # must not count as an obstacle in that case.
         body_to_check = snake if will_grow else snake[:-1]
         collided_body = new_head in body_to_check
         collided_poop = new_head in poop
@@ -185,10 +187,19 @@ def run_game(win, height, width):
 
         if will_grow:
             score += 10
+            fruits_eaten += 1
+            if fruits_eaten % FRUITS_PER_POOP == 0:
+                # The snake poops out its current tail cell as a permanent
+                # obstacle once every FRUITS_PER_POOP fruits digested.
+                poop.add(snake[-1])
+                log.debug(
+                    "tick=%d milestone: %d fruits eaten, poop added at %s",
+                    tick, fruits_eaten, snake[-1],
+                )
             food = place_food(snake, poop, height, width)
             log.debug("tick=%d ate food, new score=%d, new food=%s", tick, score, food)
         else:
-            poop.add(snake.pop())
+            snake.pop()
 
         draw_board(win, snake, poop, food, score, height, width)
 
