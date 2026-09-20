@@ -6,6 +6,10 @@ Controls:
     p          - pause / resume
     q          - quit
     r          - restart (after game over)
+
+Every cell the snake's tail vacates is left behind as permanent "poop" -
+crashing into your own trail ends the game just like hitting a wall or
+your own body.
 """
 
 import curses
@@ -14,6 +18,8 @@ import os
 import random
 
 DELAY_MS = 100
+POOP_CHAR = ord("%")
+CRASH_CHAR = ord("X")
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snake_debug.log")
 
@@ -41,21 +47,33 @@ OPPOSITES = {
 }
 
 
-def place_food(snake, height, width):
+def place_food(snake, poop, height, width):
     while True:
         food = (random.randint(1, height - 2), random.randint(1, width - 2))
-        if food not in snake:
+        if food not in snake and food not in poop:
             return food
 
 
-def draw_board(win, snake, food, score, height, width, paused=False):
+def draw_board(win, snake, poop, food, score, height, width, paused=False, crash=None):
     try:
         win.erase()
         win.border()
 
+        for y, x in poop:
+            win.addch(y, x, POOP_CHAR)
+
         for y, x in snake:
             win.addch(y, x, curses.ACS_CKBOARD)
         win.addch(food[0], food[1], curses.ACS_DIAMOND)
+
+        if crash is not None:
+            # The crash cell can land on the border itself (a wall hit), and
+            # curses refuses a plain addch at the window's absolute bottom-
+            # right corner, so failing to draw the marker there is fine.
+            try:
+                win.addch(crash[0], crash[1], CRASH_CHAR)
+            except curses.error:
+                pass
 
         win.addstr(0, 2, f" Score: {score} ")
 
@@ -66,22 +84,22 @@ def draw_board(win, snake, food, score, height, width, paused=False):
         win.refresh()
     except curses.error:
         log.exception(
-            "curses draw error: snake=%s food=%s score=%s height=%s width=%s",
-            snake, food, score, height, width,
+            "curses draw error: snake=%s poop_count=%d food=%s score=%s height=%s width=%s",
+            snake, len(poop), food, score, height, width,
         )
         raise
 
 
 def show_game_over(win, score, height, width):
-    """Display the game-over screen and block for 'r' (restart) or 'q' (quit)."""
+    """Overlay the game-over prompt without erasing the board, so the
+    snake's final position and shape stay visible, and block for
+    'r' (restart) or 'q' (quit)."""
     win.nodelay(False)
     lines = [
         "GAME OVER",
         f"Final score: {score}",
         "Press 'r' to restart or 'q' to quit",
     ]
-    win.erase()
-    win.border()
     for i, line in enumerate(lines):
         win.addstr(height // 2 - 1 + i, max(1, (width - len(line)) // 2), line)
     win.refresh()
@@ -103,7 +121,8 @@ def run_game(win, height, width):
     mid_y, mid_x = height // 2, width // 2
     snake = [(mid_y, mid_x), (mid_y, mid_x - 1), (mid_y, mid_x - 2)]
     direction = (0, 1)
-    food = place_food(snake, height, width)
+    poop = set()
+    food = place_food(snake, poop, height, width)
     score = 0
     paused = False
     tick = 0
@@ -134,7 +153,7 @@ def run_game(win, height, width):
                 log.debug("tick=%d rejected reverse direction %s", tick, new_direction)
 
         if paused:
-            draw_board(win, snake, food, score, height, width, paused=True)
+            draw_board(win, snake, poop, food, score, height, width, paused=True)
             continue
 
         head_y, head_x = snake[0]
@@ -148,27 +167,30 @@ def run_game(win, height, width):
         )
         will_grow = new_head == food
         # The tail cell vacates this move unless the snake is growing, so it
-        # must not count as an obstacle in that case.
+        # must not count as an obstacle in that case - it becomes poop below.
         body_to_check = snake if will_grow else snake[:-1]
-        collided = new_head in body_to_check
-        if hit_wall or collided:
+        collided_body = new_head in body_to_check
+        collided_poop = new_head in poop
+        if hit_wall or collided_body or collided_poop:
             log.warning(
-                "tick=%d GAME OVER: head=%s new_head=%s hit_wall=%s collided=%s "
-                "snake=%s score=%d",
-                tick, snake[0], new_head, hit_wall, collided, snake, score,
+                "tick=%d GAME OVER: head=%s new_head=%s hit_wall=%s collided_body=%s "
+                "collided_poop=%s snake=%s poop_count=%d score=%d",
+                tick, snake[0], new_head, hit_wall, collided_body, collided_poop,
+                snake, len(poop), score,
             )
+            draw_board(win, snake, poop, food, score, height, width, crash=new_head)
             return score, False
 
         snake.insert(0, new_head)
 
         if will_grow:
             score += 10
-            food = place_food(snake, height, width)
+            food = place_food(snake, poop, height, width)
             log.debug("tick=%d ate food, new score=%d, new food=%s", tick, score, food)
         else:
-            snake.pop()
+            poop.add(snake.pop())
 
-        draw_board(win, snake, food, score, height, width)
+        draw_board(win, snake, poop, food, score, height, width)
 
 
 def main(stdscr):
@@ -176,11 +198,10 @@ def main(stdscr):
     stdscr.clear()
     stdscr.refresh()
 
-    term_height, term_width = stdscr.getmaxyx()
-    height, width = min(term_height, 30), min(term_width, 60)
+    height, width = stdscr.getmaxyx()
     log.info(
-        "session start: terminal=%sx%s board=%sx%s delay_ms=%d",
-        term_height, term_width, height, width, DELAY_MS,
+        "session start: board=%sx%s delay_ms=%d",
+        height, width, DELAY_MS,
     )
 
     # Play on a window sized exactly to the logical board, not the full
