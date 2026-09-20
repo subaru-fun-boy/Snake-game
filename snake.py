@@ -112,12 +112,16 @@ def run_game(stdscr, height, width):
             or new_head[1] <= 0
             or new_head[1] >= width - 1
         )
-        if hit_wall or new_head in snake:
+        will_grow = new_head == food
+        # The tail cell vacates this move unless the snake is growing, so it
+        # must not count as an obstacle in that case.
+        body_to_check = snake if will_grow else snake[:-1]
+        if hit_wall or new_head in body_to_check:
             return score, False
 
         snake.insert(0, new_head)
 
-        if new_head == food:
+        if will_grow:
             score += 10
             food = place_food(snake, height, width)
         else:
