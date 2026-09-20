@@ -48,22 +48,22 @@ def place_food(snake, height, width):
             return food
 
 
-def draw_board(stdscr, snake, food, score, height, width, paused=False):
+def draw_board(win, snake, food, score, height, width, paused=False):
     try:
-        stdscr.erase()
-        stdscr.border()
+        win.erase()
+        win.border()
 
         for y, x in snake:
-            stdscr.addch(y, x, curses.ACS_CKBOARD)
-        stdscr.addch(food[0], food[1], curses.ACS_DIAMOND)
+            win.addch(y, x, curses.ACS_CKBOARD)
+        win.addch(food[0], food[1], curses.ACS_DIAMOND)
 
-        stdscr.addstr(0, 2, f" Score: {score} ")
+        win.addstr(0, 2, f" Score: {score} ")
 
         if paused:
             msg = "PAUSED - press 'p' to resume"
-            stdscr.addstr(height // 2, max(1, (width - len(msg)) // 2), msg)
+            win.addstr(height // 2, max(1, (width - len(msg)) // 2), msg)
 
-        stdscr.refresh()
+        win.refresh()
     except curses.error:
         log.exception(
             "curses draw error: snake=%s food=%s score=%s height=%s width=%s",
@@ -72,33 +72,33 @@ def draw_board(stdscr, snake, food, score, height, width, paused=False):
         raise
 
 
-def show_game_over(stdscr, score, height, width):
+def show_game_over(win, score, height, width):
     """Display the game-over screen and block for 'r' (restart) or 'q' (quit)."""
-    stdscr.nodelay(False)
+    win.nodelay(False)
     lines = [
         "GAME OVER",
         f"Final score: {score}",
         "Press 'r' to restart or 'q' to quit",
     ]
-    stdscr.erase()
-    stdscr.border()
+    win.erase()
+    win.border()
     for i, line in enumerate(lines):
-        stdscr.addstr(height // 2 - 1 + i, max(1, (width - len(line)) // 2), line)
-    stdscr.refresh()
+        win.addstr(height // 2 - 1 + i, max(1, (width - len(line)) // 2), line)
+    win.refresh()
 
     while True:
-        key = stdscr.getch()
+        key = win.getch()
         if key in (ord("r"), ord("R")):
             return True
         if key in (ord("q"), ord("Q")):
             return False
 
 
-def run_game(stdscr, height, width):
+def run_game(win, height, width):
     """Play one round. Returns the final score."""
-    stdscr.nodelay(True)
-    stdscr.timeout(DELAY_MS)
-    stdscr.keypad(True)
+    win.nodelay(True)
+    win.timeout(DELAY_MS)
+    win.keypad(True)
 
     mid_y, mid_x = height // 2, width // 2
     snake = [(mid_y, mid_x), (mid_y, mid_x - 1), (mid_y, mid_x - 2)]
@@ -115,7 +115,7 @@ def run_game(stdscr, height, width):
 
     while True:
         tick += 1
-        key = stdscr.getch()
+        key = win.getch()
         if key != -1:
             log.debug("tick=%d key=%r", tick, key)
 
@@ -134,7 +134,7 @@ def run_game(stdscr, height, width):
                 log.debug("tick=%d rejected reverse direction %s", tick, new_direction)
 
         if paused:
-            draw_board(stdscr, snake, food, score, height, width, paused=True)
+            draw_board(win, snake, food, score, height, width, paused=True)
             continue
 
         head_y, head_x = snake[0]
@@ -168,11 +168,14 @@ def run_game(stdscr, height, width):
         else:
             snake.pop()
 
-        draw_board(stdscr, snake, food, score, height, width)
+        draw_board(win, snake, food, score, height, width)
 
 
 def main(stdscr):
     curses.curs_set(0)
+    stdscr.clear()
+    stdscr.refresh()
+
     term_height, term_width = stdscr.getmaxyx()
     height, width = min(term_height, 30), min(term_width, 60)
     log.info(
@@ -180,11 +183,18 @@ def main(stdscr):
         term_height, term_width, height, width, DELAY_MS,
     )
 
+    # Play on a window sized exactly to the logical board, not the full
+    # terminal - stdscr.border() would otherwise draw around the whole
+    # terminal while wall collisions are checked against height/width,
+    # putting the visible border nowhere near where the game actually ends.
+    win = curses.newwin(height, width, 0, 0)
+    win.keypad(True)
+
     while True:
-        score, quit_requested = run_game(stdscr, height, width)
+        score, quit_requested = run_game(win, height, width)
         if quit_requested:
             return
-        if not show_game_over(stdscr, score, height, width):
+        if not show_game_over(win, score, height, width):
             log.info("quit from game-over screen, score=%d", score)
             return
         log.info("restart requested from game-over screen, previous score=%d", score)
